@@ -1,2 +1,5 @@
 # Exclude the course software suite downloaded in this dir
 nand2tetris
+
+# Exclude the temp folder
+temp
