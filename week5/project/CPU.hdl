@@ -1,0 +1,100 @@
+// This file is part of www.nand2tetris.org
+// and the book "The Elements of Computing Systems"
+// by Nisan and Schocken, MIT Press.
+// File name: projects/05/CPU.hdl
+
+/**
+ * The Hack CPU (Central Processing unit), consisting of an ALU,
+ * two registers named A and D, and a program counter named PC.
+ * The CPU is designed to fetch and execute instructions written in 
+ * the Hack machine language. In particular, functions as follows:
+ * Executes the inputted instruction according to the Hack machine 
+ * language specification. The D and A in the language specification
+ * refer to CPU-resident registers, while M refers to the external
+ * memory location addressed by A, i.e. to Memory[A]. The inM input 
+ * holds the value of this location. If the current instruction needs 
+ * to write a value to M, the value is placed in outM, the address 
+ * of the target location is placed in the addressM output, and the 
+ * writeM control bit is asserted. (When writeM==0, any value may 
+ * appear in outM). The outM and writeM outputs are combinational: 
+ * they are affected instantaneously by the execution of the current 
+ * instruction. The addressM and pc outputs are clocked: although they 
+ * are affected by the execution of the current instruction, they commit 
+ * to their new values only in the next time step. If reset==1 then the 
+ * CPU jumps to address 0 (i.e. pc is set to 0 in next time step) rather 
+ * than to the address resulting from executing the current instruction. 
+ */
+
+CHIP CPU {
+
+    IN  inM[16],         // M value input  (M = contents of RAM[A])
+        instruction[16], // Instruction for execution
+        reset;           // Signals whether to re-start the current
+                         // program (reset==1) or continue executing
+                         // the current program (reset==0).
+
+    OUT outM[16],        // M value output
+        writeM,          // Write to M? 
+        addressM[15],    // Address in data memory (of M)
+        pc[15];          // address of next instruction
+
+    PARTS:
+    // Put your code here:
+    // Register A and it's Mux
+    Mux16(a=instruction, b=outALU, sel=instruction[15], out=inRegA);
+    Not(in=instruction[15], out=aInst); // A instruction
+    And(a=instruction[15], b=instruction[5], out=cInstSaveA); // C instructions saving data to A
+    Or(a=aInst, b=cInstSaveA, out=loadRegA); // A instructions or C instructions saving data in A
+    ARegister(in=inRegA, load=loadRegA, out=outRegA, out[0..14]=addressM);
+
+    // ALU And D Register
+    And(a=instruction[4], b=instruction[15], out=loadRegD); // Load register D only on C-instructions
+    DRegister(in=outALU, load=loadRegD, out=outRegD);
+    Mux16(a=outRegA, b=inM, sel=instruction[12], out=inALU2); // a==0 or a==1, use A or M in the computation
+    ALU(x=outRegD, y=inALU2, zx=instruction[11], nx=instruction[10], zy=instruction[9], ny=instruction[8],
+        f=instruction[7], no=instruction[6], out=outALU, out=outM, zr=outIsZero, ng=OutNegitive);
+    
+    // WriteM, only for C instructions
+    And(a=instruction[3], b=instruction[15], out=writeM);
+
+    // Programm Counter | I really do believe that I can optimize the PC much more than this (maybe anotehr shorter approach ?), 
+    // But I'll leave it for now cause I'm tired lol
+    // start with some helpers
+    Not(in=outIsZero, out=outIsNotZero);
+    Not(in=OutNegitive, out=OutNotNegitive);
+    Not(in=instruction[0], out=notj1);
+    Not(in=instruction[1], out=notj2);
+    Not(in=instruction[2], out=notj3);
+    And(a=OutNotNegitive, b=outIsNotZero, out=outPositive);
+    
+    And(a=notj3, b=notj2, out=temp1);
+    And(a=temp1, b=instruction[0], out=temp2);
+    And(a=temp2, b=outPositive, out=jump2); // comp > 0
+
+    And(a=notj3, b=instruction[1], out=temp3);
+    And(a=temp3, b=notj1, out=temp31);
+    And(a=temp31, b=outIsZero, out=jump3); // comp == 0
+
+    And(a=temp3, b=instruction[0], out=temp4);
+    And(a=temp4, b=OutNotNegitive, out=jump4); // comp >= 0
+
+    And(a=instruction[2], b=notj2, out=temp5);
+    And(a=temp5, b=notj1, out=temp51);
+    And(a=temp51, b=OutNegitive, out=jump5); // comp < 0
+
+    And(a=temp5, b=instruction[0], out=temp6);
+    And(a=temp6, b=outIsNotZero, out=jump6); // comp != 0
+
+    And(a=instruction[2], b=instruction[1], out=temp7);
+    And(a=temp7, b=notj1, out=temp71);
+    And(a=temp71, b=OutNegitive, out=temp72);
+    And(a=temp71, b=outIsZero, out=temp73);
+    Or(a=temp72, b=temp73, out=jump7); // comp <= 0
+
+    And(a=temp7, b=instruction[0], out=jump8); // Unconditional jump
+
+    Or8Way(in[0]=false, in[1]=jump2, in[2]=jump3, in[3]=jump4, in[4]=jump5, in[5]=jump6, in[6]=jump7, in[7]=jump8, out=tempJump);
+    And(a=tempJump, b=instruction[15], out=jump); // Jump only on C-instructions
+
+    PC(in=outRegA, load=jump, inc=true, reset=reset, out[0..14]=pc);
+}
